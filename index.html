@@ -223,13 +223,15 @@
   <div class="card">
     <h2><span class="step-num">4</span> 分析レポートを生成</h2>
     <div class="row">
-      <button id="genBtn" class="btn btn-primary">分析する</button>
+      <button id="genBtn" class="btn btn-primary">分析する（キーあり）</button>
+      <button id="promptBtn" class="btn btn-ghost">📝 プロンプトをコピー（鍵なしでOK）</button>
       <button id="saveBtn" class="btn btn-ghost" disabled>💾 ライブラリに保存</button>
       <button id="copyBtn" class="btn btn-ghost" disabled>📋 コピー</button>
       <button id="dlBtn" class="btn btn-ghost" disabled>⬇️ Markdown保存</button>
       <span id="genStatus" class="status"></span>
     </div>
-    <pre id="output" style="margin-top:14px; display:none"></pre>
+    <div id="outHint" class="hint" style="margin-top:10px; display:none">↓ 無料のChatGPT等に貼って出てきた結果を、ここに貼り付ければ「ライブラリに保存」もできます（編集可）。</div>
+    <pre id="output" contenteditable="true" style="margin-top:8px; display:none"></pre>
   </div>
 
   <!-- ライブラリ -->
@@ -479,6 +481,23 @@ $('genBtn').addEventListener('click', async () => {
   }
 });
 
+// 鍵なし：分析用プロンプトを生成してコピー → 無料のChatGPT等に貼る
+$('promptBtn').addEventListener('click', () => {
+  const data = gather();
+  const prompt = TEMPLATE_SPEC +
+    '\n\n# 分析対象データ\n以下のデータを分析して、上のテンプレートを埋めてください:\n\n' +
+    JSON.stringify(data, null, 2);
+  navigator.clipboard.writeText(prompt);
+  $('outHint').style.display = 'block';
+  $('output').style.display = 'block';
+  if (!$('output').textContent.trim()) {
+    $('output').textContent = '（ここにChatGPT等の分析結果を貼り付けてください）';
+  }
+  const b = $('promptBtn');
+  b.textContent = '✓ コピーしました！ChatGPT等に貼り付けてください';
+  setTimeout(() => b.textContent = '📝 プロンプトをコピー（鍵なしでOK）', 2500);
+});
+
 $('copyBtn').addEventListener('click', () => {
   navigator.clipboard.writeText($('output').textContent);
   $('copyBtn').textContent = '✓ コピーしました';
@@ -498,9 +517,10 @@ const STORE = 'ir_reports';
 const loadReports = () => { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } };
 const saveReports = r => localStorage.setItem(STORE, JSON.stringify(r));
 
+const PLACEHOLDER = '（ここにChatGPT等の分析結果を貼り付けてください）';
 $('saveBtn').addEventListener('click', () => {
   const md = $('output').textContent.trim();
-  if (!md) return;
+  if (!md || md === PLACEHOLDER) { alert('保存する分析結果がありません。'); return; }
   const account = ($('f_account').value.trim()) || '（未分類）';
   const data = gather();
   const reports = loadReports();
@@ -630,9 +650,13 @@ $('modalCopy').addEventListener('click', () => {
   setTimeout(() => $('modalCopy').textContent = '📋 コピー', 1500);
 });
 
-// 生成完了時に保存ボタンを有効化
+// 出力内容に応じてボタンを有効化（生成・貼り付けどちらでも）
 new MutationObserver(() => {
-  $('saveBtn').disabled = !$('output').textContent.trim();
+  const t = $('output').textContent.trim();
+  const real = !!t && t !== PLACEHOLDER;
+  $('saveBtn').disabled = !real;
+  $('copyBtn').disabled = !real;
+  $('dlBtn').disabled = !real;
 }).observe($('output'), { childList: true, characterData: true, subtree: true });
 
 // 起動時
