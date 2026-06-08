@@ -287,6 +287,7 @@ $('filterAccount').addEventListener('change', render);
 // ---- 編集モーダル ----
 function openEdit(id) {
   editingId = id;
+  titleTouched = false; dateTouched = false;
   const r = id ? load().find(x => x.id === id) : null;
   $('editTitle').textContent = id ? 'レポートを編集' : '新規レポート';
   $('e_account').value = r ? r.account : ($('filterAccount').value !== ALL ? $('filterAccount').value : '');
@@ -297,6 +298,44 @@ function openEdit(id) {
 }
 $('fab').addEventListener('click', () => openEdit(null));
 $('editClose').addEventListener('click', () => $('editOverlay').classList.remove('open'));
+
+// 本文からタイトル・日付を自動抽出（新規レポート貼り付け時のみ）
+let titleTouched = false, dateTouched = false;
+$('e_title').addEventListener('input', () => titleTouched = true);
+$('e_date').addEventListener('input', () => dateTouched = true);
+
+function extractMeta(body) {
+  let title = '', date = '';
+  const lines = body.split('\n').map(l => l.trim());
+  // タイトル：最初の「…」『…』を優先
+  for (const l of lines) {
+    const m = l.match(/[「『]([^」』]{2,})[」』]/);
+    if (m) { title = m[1]; break; }
+  }
+  // 無ければ最初の意味のある行（区切り線・記号のみは除外）
+  if (!title) {
+    for (const l of lines) {
+      if (!l || /^[-=⸻─#*•・\s]+$/.test(l)) continue;
+      title = l.replace(/^#+\s*/, '').slice(0, 60); break;
+    }
+  }
+  // 日付：投稿日 > ○月○日 > M/D
+  const m = body.match(/投稿日[：:]\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/)
+         || body.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/)
+         || body.match(/(?:^|\s)(\d{1,2})\/(\d{1,2})(?:\s|$)/);
+  if (m) {
+    const y = new Date().getFullYear();
+    date = `${y}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+  }
+  return { title, date };
+}
+
+$('e_body').addEventListener('input', () => {
+  if (editingId) return; // 編集中の既存レポートには触らない
+  const { title, date } = extractMeta($('e_body').value);
+  if (!titleTouched && !$('e_title').value && title) $('e_title').value = title;
+  if (!dateTouched && date) $('e_date').value = date;
+});
 
 $('saveReport').addEventListener('click', () => {
   const body = $('e_body').value.trim();
