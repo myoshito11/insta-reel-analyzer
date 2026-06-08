@@ -185,7 +185,21 @@
       <div><label>保存数</label><input id="f_saves" /></div>
       <div><label>コメント数</label><input id="f_comments" /></div>
       <div><label>シェア数</label><input id="f_shares" /></div>
+      <div><label>再投稿数</label><input id="f_reposts" /></div>
       <div><label>フォロー増加数</label><input id="f_follows" /></div>
+      <div class="full"><label>総再生時間</label><input id="f_watchtime" placeholder="10日23時間10分25秒" /></div>
+    </div>
+  </div>
+
+  <!-- オーディエンス・流入 -->
+  <div class="card">
+    <h2><span class="step-num">＋</span> オーディエンス・流入データ（スクショから自動入力）</h2>
+    <div class="grid">
+      <div><label>性別比</label><input id="f_gender" placeholder="女性95% / 男性5%" /></div>
+      <div><label>主な国</label><input id="f_country" placeholder="日本99.1%" /></div>
+      <div><label>フォロワー比率</label><input id="f_follower_ratio" placeholder="非フォロワー100%" /></div>
+      <div class="full"><label>年齢層</label><input id="f_age" placeholder="45-54:35.4%, 35-44:32.0%, 25-34:14.4%..." /></div>
+      <div class="full"><label>流入ソース</label><input id="f_source" placeholder="リールタブ66.1%, 発見32.7%, プロフィール1.1%..." /></div>
     </div>
   </div>
 
@@ -315,18 +329,27 @@ $('readBtn').addEventListener('click', async () => {
   try {
     const content = [
       { type: 'text', text:
-        'これはInstagramリールのインサイト（分析）画面のスクリーンショットです。' +
-        '読み取れる数値を次のJSONキーで返してください（不明な項目は空文字）。' +
-        'ローマ字キー: title, date, views(再生数/閲覧数), reach(リーチ), duration(動画の長さ), ' +
-        'avgwatch(平均再生時間), skip(スキップ率), likes(いいね), saves(保存), comments(コメント), ' +
-        'shares(シェア), follows(フォロー増加). 数値はカンマ無しの文字列で。JSONのみ返す。' },
+        'これはInstagramリールのインサイト（分析）画面のスクリーンショットです（複数枚）。' +
+        'すべての画像を総合して、読み取れる情報を次のJSONキーで返してください（不明な項目は空文字）。\n' +
+        '【数値】title(動画タイトル/冒頭テーマ), date(投稿日), views(閲覧数/再生数,カンマ無し), ' +
+        'reach(リーチ数), duration(動画の長さ。例 0:30), avgwatch(平均再生時間。例 22秒), ' +
+        'skip(スキップ率。例 25.7%), watchtime(総再生時間。例 10日23時間10分25秒), ' +
+        'likes(いいね), saves(保存), comments(コメント), shares(シェア), reposts(再投稿), follows(フォロー増加).\n' +
+        '【オーディエンス・流入】次は読みやすい文字列でまとめて返す:\n' +
+        'source(閲覧数の上位ソース。例 "リールタブ66.1%, 発見32.7%, プロフィール1.1%, フィード0.1%"), ' +
+        'follower_ratio(フォロワー比率。例 "非フォロワー100% / フォロワー0%"), ' +
+        'gender(性別比。例 "女性95% / 男性5%"), ' +
+        'age(年齢層を割合の高い順に。例 "45-54:35.4%, 35-44:32.0%, 25-34:14.4%, 55-64:13.1%"), ' +
+        'country(主な国。例 "日本99.1%, 米国0.3%"). 数値はカンマ無し。JSONのみ返す。' },
       ...images.map(im => ({ type: 'image_url', image_url: { url: im.dataUrl } })),
     ];
     const raw = await callOpenAI([{ role: 'user', content }], true);
     const d = JSON.parse(raw);
     const map = { title:'f_title', date:'f_date', views:'f_views', reach:'f_reach',
-      duration:'f_duration', avgwatch:'f_avgwatch', skip:'f_skip', likes:'f_likes',
-      saves:'f_saves', comments:'f_comments', shares:'f_shares', follows:'f_follows' };
+      duration:'f_duration', avgwatch:'f_avgwatch', skip:'f_skip', watchtime:'f_watchtime',
+      likes:'f_likes', saves:'f_saves', comments:'f_comments', shares:'f_shares',
+      reposts:'f_reposts', follows:'f_follows', source:'f_source', follower_ratio:'f_follower_ratio',
+      gender:'f_gender', age:'f_age', country:'f_country' };
     let filled = 0;
     for (const k in map) if (d[k]) { $(map[k]).value = d[k]; filled++; }
     st.className = 'status ok'; st.textContent = `✓ ${filled}項目を読み取りました（必要なら手で修正してください）`;
@@ -338,7 +361,10 @@ $('readBtn').addEventListener('click', async () => {
 });
 
 // --- Step1: コピペ解析（API不要・ローカル処理）---
-function isValueLine(s) { return /^[\d.,]+\s*(万|億)?%?$/.test(s.trim()); }
+function isValueLine(s) {
+  s = s.trim();
+  return /^[\d.,]+\s*(万|億|秒|分|%)?$/.test(s) || /^\d{1,2}:\d{2}$/.test(s);
+}
 function parseValueNum(s) {
   const m = String(s).replace(/[,\s]/g, '').match(/^([\d.]+)(万|億)?%?$/);
   if (!m) return null;
@@ -365,22 +391,24 @@ $('pasteBtn').addEventListener('click', () => {
     for (const k in pairs) if (pred(k) && !String(pairs[k]).includes('%')) return pairs[k];
     return null;
   };
+  // [id, 値, mode] mode='raw' は %や秒をそのまま入れる、'num' は数値化
   const fills = [
-    ['f_views',   findCount(k => k.includes('ビュー') && !k.includes('リール'))],
-    ['f_reach',   findCount(k => k.includes('リーチ'))],
-    ['f_likes',   findCount(k => k.includes('いいね'))],
-    ['f_comments',findCount(k => k.includes('コメント'))],
-    ['f_saves',   findCount(k => k.includes('保存'))],
-    ['f_shares',  findCount(k => k.includes('シェア'))],
-    ['f_follows', findCount(k => k.includes('フォロー数'))],
-    ['f_avgwatch',find(k => k.includes('平均'))],
-    ['f_duration',find(k => k.includes('長さ') || k.includes('再生時間') && k.includes('動画'))],
+    ['f_views',    findCount(k => k.includes('ビュー') || (k.includes('閲覧') && !k.includes('ソース'))), 'num'],
+    ['f_reach',    findCount(k => k.includes('リーチ')), 'num'],
+    ['f_likes',    findCount(k => k.includes('いいね')), 'num'],
+    ['f_comments', findCount(k => k.includes('コメント')), 'num'],
+    ['f_saves',    findCount(k => k.includes('保存')), 'num'],
+    ['f_shares',   findCount(k => k.includes('シェア')), 'num'],
+    ['f_reposts',  findCount(k => k.includes('再投稿')), 'num'],
+    ['f_follows',  findCount(k => k.includes('フォロー数')), 'num'],
+    ['f_skip',     find(k => k.includes('スキップ')), 'raw'],
+    ['f_avgwatch', find(k => k.includes('平均') && k.includes('再生')), 'raw'],
   ];
   let filled = 0;
-  for (const [id, val] of fills) {
+  for (const [id, val, mode] of fills) {
     if (val != null) {
-      const n = parseValueNum(val);
-      $(id).value = (n != null ? n : val);
+      if (mode === 'raw') { $(id).value = val; }
+      else { const n = parseValueNum(val); $(id).value = (n != null ? n : val); }
       filled++;
     }
   }
@@ -394,6 +422,8 @@ $('pasteBtn').addEventListener('click', () => {
 const TEMPLATE_SPEC = `
 あなたはInstagramリールの分析プロです。以下のデータをもとに、指定のテンプレートを日本語のMarkdownで埋めてください。
 推測する箇所は断定しすぎず「〜と考えられる」調で。データが無い項目は内容から妥当に推論し、根拠を添える。
+オーディエンスデータ（性別・年齢層・国・流入ソース）が与えられている場合は、必ず3章（ターゲットとの一致）と7章（視聴者心理）に具体的な数字を引用して反映する。
+スキップ率・平均再生時間・流入ソースは4章（離脱分析）で必ず根拠として使う。
 出力はテンプレートのMarkdownのみ。前置きや「承知しました」は不要。
 
 # テンプレート構成（この見出し・順番で出力）
@@ -414,9 +444,14 @@ function gather() {
   return {
     基本情報: {
       タイトル: g('f_title'), 投稿日: g('f_date'), 閲覧数: g('f_views'),
-      リーチ数: g('f_reach'), 再生時間: g('f_duration'), 平均再生時間: g('f_avgwatch'),
-      スキップ率: g('f_skip'), いいね数: g('f_likes'), 保存数: g('f_saves'),
-      コメント数: g('f_comments'), シェア数: g('f_shares'), フォロー増加数: g('f_follows'),
+      リーチ数: g('f_reach'), 動画の長さ: g('f_duration'), 平均再生時間: g('f_avgwatch'),
+      スキップ率: g('f_skip'), 総再生時間: g('f_watchtime'), いいね数: g('f_likes'),
+      保存数: g('f_saves'), コメント数: g('f_comments'), シェア数: g('f_shares'),
+      再投稿数: g('f_reposts'), フォロー増加数: g('f_follows'),
+    },
+    オーディエンス: {
+      性別: g('f_gender'), 年齢層: g('f_age'), 国: g('f_country'),
+      フォロワー比率: g('f_follower_ratio'), 流入ソース: g('f_source'),
     },
     冒頭フック: g('v_hook'), 内容構成: g('v_summary'), 音源: g('v_audio'),
     ターゲット: g('v_target'), ジャンル: g('v_genre'), キャプション: g('v_caption'),
