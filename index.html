@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>レポート管理</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="reports.js"></script>
 <style>
   :root {
     --bg: #0f1115;
@@ -78,6 +79,7 @@
     border: 1px solid #4a2535; color: #ffb3c7;
   }
   .card .date { font-size: 11px; color: var(--muted); }
+  .tag { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
   .card .title { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
   .card .snippet { font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
@@ -158,6 +160,7 @@
   <div class="toolbar">
     <input id="search" class="grow" placeholder="🔍 タイトル・本文・アカウントで検索" />
     <select id="filterAccount" class="filter"></select>
+    <select id="filterTag" class="filter"></select>
     <select id="sortOrder" class="filter">
       <option value="desc">投稿日：新しい順</option>
       <option value="asc">投稿日：古い順</option>
@@ -187,6 +190,9 @@
       <div style="flex:2"><label>タイトル</label><input id="e_title" placeholder="例：タワマン引きこもり動画の分析" /></div>
       <div style="flex:1"><label>日付</label><input id="e_date" type="date" /></div>
     </div>
+    <label>カテゴリ（タグ・カンマ区切り）</label>
+    <input id="e_tags" list="tagList" placeholder="例：不動産・住まい, 子育て・教育, バズった" />
+    <datalist id="tagList"></datalist>
     <label>レポート本文（ChatGPTの出力を貼り付け／Markdown対応）</label>
     <textarea id="e_body" placeholder="ChatGPTで書いたレポートをそのまま貼り付け"></textarea>
     <div style="display:flex; gap:8px; margin-top:14px">
@@ -220,12 +226,25 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const STORE = 'reports_v2';
+const USTORE = 'reports_v2';      // この端末で追加・編集した分
+const HIDDEN = 'reports_hidden';  // 削除した正式レポート(reports.js)のID
 const ALL = '__all__';
 
-const load = () => { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } };
-const save = r => localStorage.setItem(STORE, JSON.stringify(r));
+const userStore = () => { try { return JSON.parse(localStorage.getItem(USTORE)) || []; } catch { return []; } };
+const saveUser = r => localStorage.setItem(USTORE, JSON.stringify(r));
+const hidden = () => { try { return JSON.parse(localStorage.getItem(HIDDEN)) || []; } catch { return []; } };
+const seedData = () => (window.REPORT_SEED || []);
+// 正式レポート(reports.js) + 端末ローカルの追加/上書きをマージ（同idはローカル優先、削除分は除外）
+function load() {
+  const u = userStore();
+  const uIds = new Set(u.map(r => r.id));
+  const h = new Set(hidden());
+  const fromSeed = seedData().filter(s => !uIds.has(s.id) && !h.has(s.id));
+  const fromUser = u.filter(r => !h.has(r.id));
+  return fromSeed.concat(fromUser);
+}
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const parseTags = s => (s || '').split(/[,、，]/).map(t => t.trim()).filter(Boolean);
 const todayStr = () => { const d = new Date(); return d.toISOString().slice(0,10); };
 
 let editingId = null;   // 編集中ID（新規はnull）
@@ -257,13 +276,25 @@ function refreshFilter() {
   $('accList').innerHTML = accs.map(a => `<option value="${esc(a)}">`).join('');
 }
 
+function allTags() { return [...new Set(load().flatMap(r => r.tags || []))].sort(); }
+function refreshTags() {
+  const tags = allTags();
+  const cur = $('filterTag').value || ALL;
+  $('filterTag').innerHTML = `<option value="${ALL}">すべてのカテゴリ</option>` +
+    tags.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  $('filterTag').value = tags.includes(cur) || cur === ALL ? cur : ALL;
+  $('tagList').innerHTML = tags.map(t => `<option value="${esc(t)}">`).join('');
+}
+
 function currentList() {
   const q = $('search').value.trim().toLowerCase();
   const acc = $('filterAccount').value;
+  const tag = $('filterTag').value;
   const asc = $('sortOrder').value === 'asc';
   return load()
     .filter(r => acc === ALL || r.account === acc)
-    .filter(r => !q || (r.title + ' ' + r.account + ' ' + r.body).toLowerCase().includes(q))
+    .filter(r => tag === ALL || (r.tags || []).includes(tag))
+    .filter(r => !q || (r.title + ' ' + r.account + ' ' + (r.tags || []).join(' ') + ' ' + r.body).toLowerCase().includes(q))
     .sort((a, b) => {
       const d = (a.date || '').localeCompare(b.date || '') || (a.id - b.id);
       return asc ? d : -d;
@@ -279,6 +310,7 @@ function render() {
       <div class="meta">
         ${r.account ? `<span class="chip">${esc(r.account)}</span>` : ''}
         <span class="date">${esc(r.date || '')}</span>
+        ${(r.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
       </div>
       <div class="title">${esc(r.title || '無題')}</div>
       <div class="snippet">${esc(plain(r.body).slice(0, 120))}</div>
@@ -291,6 +323,7 @@ $('list').addEventListener('click', e => {
 });
 $('search').addEventListener('input', render);
 $('filterAccount').addEventListener('change', render);
+$('filterTag').addEventListener('change', render);
 $('sortOrder').addEventListener('change', () => { localStorage.setItem('reports_sort', $('sortOrder').value); render(); });
 $('sortOrder').value = localStorage.getItem('reports_sort') || 'desc';
 
@@ -303,6 +336,7 @@ function openEdit(id) {
   $('e_account').value = r ? r.account : ($('filterAccount').value !== ALL ? $('filterAccount').value : '');
   $('e_title').value = r ? r.title : '';
   $('e_date').value = r ? (r.date || todayStr()) : todayStr();
+  $('e_tags').value = r && r.tags ? r.tags.join(', ') : '';
   $('e_body').value = r ? r.body : '';
   $('editOverlay').classList.add('open');
 }
@@ -350,22 +384,27 @@ $('e_body').addEventListener('input', () => {
 $('saveReport').addEventListener('click', () => {
   const body = $('e_body').value.trim();
   if (!body) { toast('本文を入力してください'); return; }
-  const reports = load();
   const data = {
     account: $('e_account').value.trim(),
     title: $('e_title').value.trim() || '無題',
     date: $('e_date').value || todayStr(),
+    tags: parseTags($('e_tags').value),
     body,
   };
+  const u = userStore();
   if (editingId) {
-    const i = reports.findIndex(x => x.id === editingId);
-    reports[i] = { ...reports[i], ...data, updatedAt: Date.now() };
+    const i = u.findIndex(x => x.id === editingId);
+    if (i >= 0) { u[i] = { ...u[i], ...data, updatedAt: Date.now() }; }
+    else { // 正式レポートの編集 → ローカル上書きとして保存
+      const s = seedData().find(x => x.id === editingId) || {};
+      u.unshift({ ...s, ...data, id: editingId, updatedAt: Date.now() });
+    }
   } else {
-    reports.unshift({ id: Date.now(), ...data, createdAt: Date.now() });
+    u.unshift({ id: Date.now(), ...data, createdAt: Date.now() });
   }
-  save(reports);
+  saveUser(u);
   $('editOverlay').classList.remove('open');
-  refreshFilter(); render();
+  refreshFilter(); refreshTags(); render();
   toast('保存しました');
 });
 
@@ -375,7 +414,8 @@ function openView(id) {
   if (!r) return;
   viewingId = id;
   $('v_meta').innerHTML = (r.account ? `<span class="chip">${esc(r.account)}</span>` : '') +
-    `<span class="date">${esc(r.date || '')}</span>`;
+    `<span class="date">${esc(r.date || '')}</span>` +
+    (r.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('');
   $('v_title').textContent = r.title || '無題';
   $('v_body').innerHTML = renderMd(r.body);
   $('viewOverlay').classList.add('open');
@@ -388,9 +428,14 @@ $('v_copy').addEventListener('click', () => {
 });
 $('v_del').addEventListener('click', () => {
   if (!confirm('このレポートを削除しますか？')) return;
-  save(load().filter(x => x.id !== viewingId));
+  const u = userStore();
+  if (u.some(x => x.id === viewingId)) saveUser(u.filter(x => x.id !== viewingId));
+  if (seedData().some(x => x.id === viewingId)) {
+    const h = hidden();
+    if (!h.includes(viewingId)) localStorage.setItem(HIDDEN, JSON.stringify(h.concat(viewingId)));
+  }
   $('viewOverlay').classList.remove('open');
-  refreshFilter(); render(); toast('削除しました');
+  refreshFilter(); refreshTags(); render(); toast('削除しました');
 });
 
 // オーバーレイの外側タップで閉じる
@@ -428,11 +473,11 @@ $('fileInput').addEventListener('change', e => {
     try {
       const incoming = JSON.parse(reader.result);
       if (!Array.isArray(incoming)) throw new Error();
-      const cur = load();
-      const ids = new Set(cur.map(r => r.id));
-      const merged = cur.concat(incoming.filter(r => r && r.id && !ids.has(r.id)));
-      save(merged); refreshFilter(); render();
-      toast(`${merged.length - cur.length}件を取り込みました`);
+      const u = userStore();
+      const ids = new Set(u.map(r => r.id));
+      const add = incoming.filter(r => r && r.id && !ids.has(r.id));
+      saveUser(u.concat(add)); refreshFilter(); refreshTags(); render();
+      toast(`${add.length}件を取り込みました`);
     } catch { toast('読み込めませんでした（JSON形式を確認）'); }
     $('fileInput').value = '';
   };
@@ -449,6 +494,7 @@ function downloadFile(content, name, type) {
 
 // 起動
 refreshFilter();
+refreshTags();
 render();
 </script>
 </body>
