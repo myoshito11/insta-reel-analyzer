@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Instagramリール分析ツール</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --panel-2: #1f232c;
+    --border: #2a2f3a;
+    --text: #e7e9ee;
+    --muted: #8b93a4;
+    --accent: #e1306c;
+    --accent-2: #f77737;
+    --ok: #34d399;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: radial-gradient(1200px 600px at 80% -10%, #2a1430 0%, var(--bg) 55%);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  header {
+    padding: 28px 24px 12px;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 13px; }
+  main { max-width: 980px; margin: 0 auto; padding: 12px 24px 80px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .card h2 {
+    font-size: 15px;
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .step-num {
+    display: inline-flex;
+    width: 24px; height: 24px;
+    align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-radius: 50%;
+    font-size: 13px; font-weight: 700;
+    color: #fff;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea, select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    padding: 9px 11px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 64px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 14px; }
+  .grid .full { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 26px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: .15s;
+  }
+  .drop.drag { border-color: var(--accent); background: #21161d; color: var(--text); }
+  .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .thumbs img { width: 70px; height: 92px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+  .btn {
+    border: none;
+    border-radius: 10px;
+    padding: 11px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
+  .btn-ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .status { font-size: 13px; color: var(--muted); min-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: #f87171; }
+  details.settings summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  pre#output {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.7;
+    max-height: 560px;
+    overflow: auto;
+  }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -3px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 Instagram リール分析ツール</h1>
+  <div class="sub">インサイトのスクショ → 基本情報を自動入力 → テンプレ形式で分析レポート生成</div>
+</header>
+
+<main>
+  <!-- 設定 -->
+  <div class="card">
+    <details class="settings">
+      <summary>⚙️ 設定（OpenAI APIキー）</summary>
+      <label>OpenAI APIキー <span class="hint">（ブラウザ内のみに保存。外部送信なし）</span></label>
+      <input id="apiKey" type="password" placeholder="sk-..." />
+      <label>モデル</label>
+      <select id="model">
+        <option value="gpt-4o">gpt-4o（精度高・推奨）</option>
+        <option value="gpt-4o-mini">gpt-4o-mini（安い・速い）</option>
+      </select>
+      <div class="hint">キーは <code>localStorage</code> に保存され、OpenAI以外には送信されません。</div>
+    </details>
+  </div>
+
+  <!-- Step 1: スクショ読み取り -->
+  <div class="card">
+    <h2><span class="step-num">1</span> インサイトのスクショから自動入力</h2>
+    <div id="drop" class="drop">
+      📷 ここにインサイト画面のスクショをドラッグ＆ドロップ<br />
+      <span class="hint">（クリックで選択も可・複数枚OK）</span>
+    </div>
+    <input id="fileInput" type="file" accept="image/*" multiple hidden />
+    <div id="thumbs" class="thumbs"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="readBtn" class="btn btn-primary" disabled>スクショから数値を読み取る</button>
+      <span id="readStatus" class="status"></span>
+    </div>
+
+    <div style="text-align:center; color:var(--muted); font-size:12px; margin:18px 0 8px">― または、インサイトのテキストをコピペ（API不要・一番確実）―</div>
+    <textarea id="pasteBox" style="min-height:120px" placeholder="インサイト画面の文字を全選択してコピペ。例:&#10;ビュー&#10;6万&#10;リーチしたアカウント数&#10;4.3万&#10;「いいね！」&#10;70 ..."></textarea>
+    <div class="row" style="margin-top:10px">
+      <button id="pasteBtn" class="btn btn-primary">コピペから数値を読み取る</button>
+      <span id="pasteStatus" class="status"></span>
+    </div>
+  </div>
+
+  <!-- Step 2: 基本情報 -->
+  <div class="card">
+    <h2><span class="step-num">2</span> 基本情報（自動入力 → 手で修正OK）</h2>
+    <div class="grid">
+      <div class="full"><label>アカウント名 <span class="hint">（このアカウントの分析としてまとめます）</span></label><input id="f_account" list="accountList" placeholder="@example_account" /><datalist id="accountList"></datalist></div>
+      <div class="full"><label>動画タイトル / 冒頭テーマ</label><input id="f_title" /></div>
+      <div><label>投稿日</label><input id="f_date" placeholder="2026-06-01" /></div>
+      <div><label>閲覧数</label><input id="f_views" /></div>
+      <div><label>リーチ数</label><input id="f_reach" /></div>
+      <div><label>再生時間</label><input id="f_duration" placeholder="0:32" /></div>
+      <div><label>平均再生時間</label><input id="f_avgwatch" placeholder="0:11" /></div>
+      <div><label>スキップ率</label><input id="f_skip" placeholder="%" /></div>
+      <div><label>いいね数</label><input id="f_likes" /></div>
+      <div><label>保存数</label><input id="f_saves" /></div>
+      <div><label>コメント数</label><input id="f_comments" /></div>
+      <div><label>シェア数</label><input id="f_shares" /></div>
+      <div><label>フォロー増加数</label><input id="f_follows" /></div>
+    </div>
+  </div>
+
+  <!-- Step 3: 動画情報 -->
+  <div class="card">
+    <h2><span class="step-num">3</span> 動画の中身（分析の材料）</h2>
+    <label>冒頭フックの文言（1〜3秒で出るテロップ）</label>
+    <input id="v_hook" placeholder="例：タワマンに住んだ結果、子供が引きこもりになった" />
+    <label>動画の内容・構成メモ</label>
+    <textarea id="v_summary" placeholder="どんな話か / どういう順で見せたか / 結末は など、わかる範囲で"></textarea>
+    <div class="grid" style="margin-top:4px">
+      <div><label>使用音源（任意）</label><input id="v_audio" /></div>
+      <div><label>狙ったターゲット層</label><input id="v_target" placeholder="例：30〜50代女性 / 母親世代" /></div>
+      <div><label>ジャンル（任意）</label><input id="v_genre" /></div>
+    </div>
+    <label>キャプション本文（任意・貼り付け）</label>
+    <textarea id="v_caption"></textarea>
+  </div>
+
+  <!-- Step 4: 生成 -->
+  <div class="card">
+    <h2><span class="step-num">4</span> 分析レポートを生成</h2>
+    <div class="row">
+      <button id="genBtn" class="btn btn-primary">分析する</button>
+      <button id="saveBtn" class="btn btn-ghost" disabled>💾 ライブラリに保存</button>
+      <button id="copyBtn" class="btn btn-ghost" disabled>📋 コピー</button>
+      <button id="dlBtn" class="btn btn-ghost" disabled>⬇️ Markdown保存</button>
+      <span id="genStatus" class="status"></span>
+    </div>
+    <pre id="output" style="margin-top:14px; display:none"></pre>
+  </div>
+
+  <!-- ライブラリ -->
+  <div class="card">
+    <h2>📚 ライブラリ（アカウント別）</h2>
+    <div class="row" style="margin-bottom:8px">
+      <label style="margin:0">表示するアカウント</label>
+      <select id="libAccount" style="width:auto; min-width:200px"></select>
+      <span id="libCount" class="hint"></span>
+    </div>
+    <div id="libList"></div>
+  </div>
+</main>
+
+<!-- 保存レポート閲覧モーダル -->
+<div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50; padding:30px; overflow:auto">
+  <div style="max-width:820px; margin:0 auto; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:22px">
+    <div class="row" style="justify-content:space-between; margin-bottom:12px">
+      <strong id="modalTitle" style="font-size:14px"></strong>
+      <div class="row">
+        <button id="modalCopy" class="btn btn-ghost">📋 コピー</button>
+        <button id="modalClose" class="btn btn-ghost">閉じる</button>
+      </div>
+    </div>
+    <pre id="modalBody" style="white-space:pre-wrap; word-break:break-word; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:16px; font-size:13px; line-height:1.7; max-height:60vh; overflow:auto"></pre>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const LS = { key: 'ir_apikey', model: 'ir_model' };
+
+// --- 設定の保存/復元 ---
+$('apiKey').value = localStorage.getItem(LS.key) || '';
+$('model').value = localStorage.getItem(LS.model) || 'gpt-4o';
+$('apiKey').addEventListener('change', e => localStorage.setItem(LS.key, e.target.value.trim()));
+$('model').addEventListener('change', e => localStorage.setItem(LS.model, e.target.value));
+
+// --- 画像アップロード ---
+let images = []; // {dataUrl}
+const drop = $('drop'), fileInput = $('fileInput');
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('drag');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+function handleFiles(files) {
+  [...files].filter(f => f.type.startsWith('image/')).forEach(f => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      images.push({ dataUrl: reader.result });
+      renderThumbs();
+    };
+    reader.readAsDataURL(f);
+  });
+}
+function renderThumbs() {
+  $('thumbs').innerHTML = images.map((im, i) =>
+    `<img src="${im.dataUrl}" title="クリックで削除" data-i="${i}" />`).join('');
+  $('readBtn').disabled = images.length === 0;
+}
+$('thumbs').addEventListener('click', e => {
+  if (e.target.tagName === 'IMG') {
+    images.splice(+e.target.dataset.i, 1);
+    renderThumbs();
+  }
+});
+
+// --- OpenAI 呼び出し ---
+async function callOpenAI(messages, jsonMode) {
+  const key = $('apiKey').value.trim();
+  if (!key) throw new Error('APIキーを設定してください（⚙️設定）');
+  const body = { model: $('model').value, messages, temperature: 0.4 };
+  if (jsonMode) body.response_format = { type: 'json_object' };
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error('API エラー: ' + res.status + ' ' + t.slice(0, 200));
+  }
+  const data = await res.json();
+  return data.choices[0].message.content;
+}
+
+// --- Step1: スクショ読み取り ---
+$('readBtn').addEventListener('click', async () => {
+  const st = $('readStatus');
+  st.className = 'status'; st.innerHTML = '<span class="spinner"></span> 読み取り中...';
+  $('readBtn').disabled = true;
+  try {
+    const content = [
+      { type: 'text', text:
+        'これはInstagramリールのインサイト（分析）画面のスクリーンショットです。' +
+        '読み取れる数値を次のJSONキーで返してください（不明な項目は空文字）。' +
+        'ローマ字キー: title, date, views(再生数/閲覧数), reach(リーチ), duration(動画の長さ), ' +
+        'avgwatch(平均再生時間), skip(スキップ率), likes(いいね), saves(保存), comments(コメント), ' +
+        'shares(シェア), follows(フォロー増加). 数値はカンマ無しの文字列で。JSONのみ返す。' },
+      ...images.map(im => ({ type: 'image_url', image_url: { url: im.dataUrl } })),
+    ];
+    const raw = await callOpenAI([{ role: 'user', content }], true);
+    const d = JSON.parse(raw);
+    const map = { title:'f_title', date:'f_date', views:'f_views', reach:'f_reach',
+      duration:'f_duration', avgwatch:'f_avgwatch', skip:'f_skip', likes:'f_likes',
+      saves:'f_saves', comments:'f_comments', shares:'f_shares', follows:'f_follows' };
+    let filled = 0;
+    for (const k in map) if (d[k]) { $(map[k]).value = d[k]; filled++; }
+    st.className = 'status ok'; st.textContent = `✓ ${filled}項目を読み取りました（必要なら手で修正してください）`;
+  } catch (e) {
+    st.className = 'status err'; st.textContent = '✗ ' + e.message;
+  } finally {
+    $('readBtn').disabled = false;
+  }
+});
+
+// --- Step1: コピペ解析（API不要・ローカル処理）---
+function isValueLine(s) { return /^[\d.,]+\s*(万|億)?%?$/.test(s.trim()); }
+function parseValueNum(s) {
+  const m = String(s).replace(/[,\s]/g, '').match(/^([\d.]+)(万|億)?%?$/);
+  if (!m) return null;
+  let n = parseFloat(m[1]);
+  if (m[2] === '万') n *= 10000;
+  if (m[2] === '億') n *= 1e8;
+  return Number.isInteger(n) ? n : n;
+}
+$('pasteBtn').addEventListener('click', () => {
+  const st = $('pasteStatus');
+  const lines = $('pasteBox').value.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) { st.className = 'status err'; st.textContent = 'テキストを貼り付けてください'; return; }
+  // ラベル行 → 直後の値行 をペア化（最初の出現を優先）
+  const pairs = {}; let lastLabel = null;
+  for (const line of lines) {
+    if (isValueLine(line)) {
+      if (lastLabel && !(lastLabel in pairs)) pairs[lastLabel] = line;
+      lastLabel = null;
+    } else { lastLabel = line; }
+  }
+  const find = pred => { for (const k in pairs) if (pred(k)) return pairs[k]; return null; };
+  // 「いいね」など％を含むラベルの値は除外したいので、％でない値を優先
+  const findCount = pred => {
+    for (const k in pairs) if (pred(k) && !String(pairs[k]).includes('%')) return pairs[k];
+    return null;
+  };
+  const fills = [
+    ['f_views',   findCount(k => k.includes('ビュー') && !k.includes('リール'))],
+    ['f_reach',   findCount(k => k.includes('リーチ'))],
+    ['f_likes',   findCount(k => k.includes('いいね'))],
+    ['f_comments',findCount(k => k.includes('コメント'))],
+    ['f_saves',   findCount(k => k.includes('保存'))],
+    ['f_shares',  findCount(k => k.includes('シェア'))],
+    ['f_follows', findCount(k => k.includes('フォロー数'))],
+    ['f_avgwatch',find(k => k.includes('平均'))],
+    ['f_duration',find(k => k.includes('長さ') || k.includes('再生時間') && k.includes('動画'))],
+  ];
+  let filled = 0;
+  for (const [id, val] of fills) {
+    if (val != null) {
+      const n = parseValueNum(val);
+      $(id).value = (n != null ? n : val);
+      filled++;
+    }
+  }
+  st.className = filled ? 'status ok' : 'status err';
+  st.textContent = filled
+    ? `✓ ${filled}項目を読み取りました（Step2で確認・修正できます）`
+    : '✗ 数値が見つかりませんでした。形式を確認してください';
+});
+
+// --- Step4: 分析生成 ---
+const TEMPLATE_SPEC = `
+あなたはInstagramリールの分析プロです。以下のデータをもとに、指定のテンプレートを日本語のMarkdownで埋めてください。
+推測する箇所は断定しすぎず「〜と考えられる」調で。データが無い項目は内容から妥当に推論し、根拠を添える。
+出力はテンプレートのMarkdownのみ。前置きや「承知しました」は不要。
+
+# テンプレート構成（この見出し・順番で出力）
+## 1. 基本情報（与えられた数値をそのまま表で）
+## 2. 動画の一言要約
+## 3. リーチが広がった要因（①冒頭フック ②トレンド要素 ③ターゲットとの一致、各に考察）
+## 4. スキップ率・平均再生時間の分析（スキップを止められた理由＋考察）
+## 5. いいねが増えた要因（増えたタイミングの推定＋理由）
+## 6. 保存・シェアが増えた要因（保存理由・シェア理由・考察）
+## 7. 視聴者心理の分析
+## 8. 伸びた理由まとめ（①〜⑤の箇条書き）
+## 9. 次回に活かせる改善案（「次回も使える要素」と「改善できる要素」）
+## 10. 次回の仮説（具体的な次回案を1つ提案）
+`;
+
+function gather() {
+  const g = id => $(id).value.trim();
+  return {
+    基本情報: {
+      タイトル: g('f_title'), 投稿日: g('f_date'), 閲覧数: g('f_views'),
+      リーチ数: g('f_reach'), 再生時間: g('f_duration'), 平均再生時間: g('f_avgwatch'),
+      スキップ率: g('f_skip'), いいね数: g('f_likes'), 保存数: g('f_saves'),
+      コメント数: g('f_comments'), シェア数: g('f_shares'), フォロー増加数: g('f_follows'),
+    },
+    冒頭フック: g('v_hook'), 内容構成: g('v_summary'), 音源: g('v_audio'),
+    ターゲット: g('v_target'), ジャンル: g('v_genre'), キャプション: g('v_caption'),
+  };
+}
+
+$('genBtn').addEventListener('click', async () => {
+  const st = $('genStatus');
+  st.className = 'status'; st.innerHTML = '<span class="spinner"></span> 分析中...（10〜30秒）';
+  $('genBtn').disabled = true;
+  try {
+    const data = gather();
+    const out = await callOpenAI([
+      { role: 'system', content: TEMPLATE_SPEC },
+      { role: 'user', content: '次のデータを分析してテンプレートを埋めてください:\n\n' + JSON.stringify(data, null, 2) },
+    ], false);
+    $('output').style.display = 'block';
+    $('output').textContent = out;
+    $('copyBtn').disabled = false; $('dlBtn').disabled = false;
+    st.className = 'status ok'; st.textContent = '✓ 生成完了';
+  } catch (e) {
+    st.className = 'status err'; st.textContent = '✗ ' + e.message;
+  } finally {
+    $('genBtn').disabled = false;
+  }
+});
+
+$('copyBtn').addEventListener('click', () => {
+  navigator.clipboard.writeText($('output').textContent);
+  $('copyBtn').textContent = '✓ コピーしました';
+  setTimeout(() => $('copyBtn').textContent = '📋 コピー', 1500);
+});
+$('dlBtn').addEventListener('click', () => {
+  const blob = new Blob([$('output').textContent], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const t = ($('f_title').value.trim() || 'reel-analysis').replace(/[\\/:*?"<>|]/g, '_');
+  a.download = t + '.md';
+  a.click();
+});
+
+// ===== ライブラリ（アカウント別の保存・一覧） =====
+const STORE = 'ir_reports';
+const loadReports = () => { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } };
+const saveReports = r => localStorage.setItem(STORE, JSON.stringify(r));
+
+$('saveBtn').addEventListener('click', () => {
+  const md = $('output').textContent.trim();
+  if (!md) return;
+  const account = ($('f_account').value.trim()) || '（未分類）';
+  const data = gather();
+  const reports = loadReports();
+  reports.unshift({
+    id: Date.now(),
+    account,
+    title: $('f_title').value.trim() || '無題',
+    date: $('f_date').value.trim() || '',
+    savedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    basic: data.基本情報,
+    markdown: md,
+  });
+  saveReports(reports);
+  refreshLibrary(account);
+  const b = $('saveBtn'); b.textContent = '✓ 保存しました';
+  setTimeout(() => b.textContent = '💾 ライブラリに保存', 1500);
+});
+
+function accountsOf(reports) {
+  return [...new Set(reports.map(r => r.account))];
+}
+
+function refreshLibrary(preferAccount) {
+  const reports = loadReports();
+  const accounts = accountsOf(reports);
+  // datalist（Step2の入力補完）
+  $('accountList').innerHTML = accounts.filter(a => a !== '（未分類）').map(a => `<option value="${esc(a)}">`).join('');
+  // セレクト
+  const sel = $('libAccount');
+  const current = preferAccount || sel.value;
+  sel.innerHTML = accounts.length
+    ? accounts.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('')
+    : '<option value="">（保存されたレポートはありません）</option>';
+  if (accounts.includes(current)) sel.value = current;
+  renderList();
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function renderList() {
+  const account = $('libAccount').value;
+  const reports = loadReports().filter(r => r.account === account);
+  $('libCount').textContent = account ? `${reports.length}件` : '';
+  if (!reports.length) { $('libList').innerHTML = ''; return; }
+  const head = `
+    <div class="row" style="margin:6px 0 12px">
+      <button class="btn btn-primary" id="trendBtn" style="font-size:13px; padding:8px 14px">📈 このアカウントの傾向をまとめる</button>
+      <span id="trendStatus" class="status"></span>
+    </div>
+    <pre id="trendOut" style="white-space:pre-wrap; word-break:break-word; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:14px; font-size:13px; line-height:1.7; display:none; margin-bottom:14px"></pre>`;
+  const rows = reports.map(r => {
+    const v = r.basic || {};
+    const metrics = [
+      v.閲覧数 && `👁 ${v.閲覧数}`, v.いいね数 && `❤️ ${v.いいね数}`,
+      v.保存数 && `🔖 ${v.保存数}`, v.シェア数 && `↗️ ${v.シェア数}`,
+    ].filter(Boolean).join('　');
+    return `<div style="border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:8px; background:var(--panel-2)">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div style="font-size:14px; font-weight:600">${esc(r.title)}</div>
+          <div class="hint">${esc(r.date || r.savedAt)}　${esc(metrics)}</div>
+        </div>
+        <div class="row">
+          <button class="btn btn-ghost viewBtn" data-id="${r.id}" style="font-size:12px; padding:6px 12px">開く</button>
+          <button class="btn btn-ghost delBtn" data-id="${r.id}" style="font-size:12px; padding:6px 12px">削除</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  $('libList').innerHTML = head + rows;
+}
+
+$('libAccount').addEventListener('change', renderList);
+
+$('libList').addEventListener('click', async e => {
+  const id = e.target.dataset.id;
+  if (e.target.classList.contains('viewBtn')) {
+    const r = loadReports().find(x => x.id == id);
+    if (r) openModal(r.title + '（' + (r.date || r.savedAt) + '）', r.markdown);
+  } else if (e.target.classList.contains('delBtn')) {
+    if (!confirm('このレポートを削除しますか？')) return;
+    saveReports(loadReports().filter(x => x.id != id));
+    refreshLibrary();
+  } else if (e.target.id === 'trendBtn') {
+    await runTrend();
+  }
+});
+
+async function runTrend() {
+  const account = $('libAccount').value;
+  const reports = loadReports().filter(r => r.account === account);
+  const st = $('trendStatus'), out = $('trendOut');
+  st.className = 'status'; st.innerHTML = '<span class="spinner"></span> 集計中...';
+  try {
+    const digest = reports.map(r =>
+      `■ ${r.title}（${r.date || r.savedAt}）\n指標: ${JSON.stringify(r.basic)}\n${r.markdown}`).join('\n\n---\n\n');
+    const res = await callOpenAI([
+      { role: 'system', content:
+        `あなたはInstagram運用のアナリストです。1つのアカウントの複数リール分析レポートを横断し、` +
+        `日本語Markdownで「アカウント傾向まとめ」を作成してください。出力構成:\n` +
+        `## アカウント傾向まとめ（${account}・${reports.length}本）\n` +
+        `### 1. 伸びる動画の共通点（フック/テーマ/構成の傾向）\n` +
+        `### 2. 反応が良い指標と弱い指標（保存・シェア・いいねの傾向）\n` +
+        `### 3. 刺さっているターゲット層\n` +
+        `### 4. このアカウントの勝ちパターン（再現すべき型）\n` +
+        `### 5. 次に試すべき施策（具体的に3つ）\n出力はMarkdownのみ。` },
+      { role: 'user', content: `対象アカウント: ${account}\n以下が保存済みレポート一覧:\n\n${digest}` },
+    ], false);
+    out.style.display = 'block'; out.textContent = res;
+    st.className = 'status ok'; st.textContent = '✓ 完了';
+  } catch (err) {
+    st.className = 'status err'; st.textContent = '✗ ' + err.message;
+  }
+}
+
+// モーダル
+function openModal(title, body) {
+  $('modalTitle').textContent = title;
+  $('modalBody').textContent = body;
+  $('modal').style.display = 'block';
+}
+$('modalClose').addEventListener('click', () => $('modal').style.display = 'none');
+$('modal').addEventListener('click', e => { if (e.target.id === 'modal') $('modal').style.display = 'none'; });
+$('modalCopy').addEventListener('click', () => {
+  navigator.clipboard.writeText($('modalBody').textContent);
+  $('modalCopy').textContent = '✓ コピー';
+  setTimeout(() => $('modalCopy').textContent = '📋 コピー', 1500);
+});
+
+// 生成完了時に保存ボタンを有効化
+new MutationObserver(() => {
+  $('saveBtn').disabled = !$('output').textContent.trim();
+}).observe($('output'), { childList: true, characterData: true, subtree: true });
+
+// 起動時
+refreshLibrary();
+</script>
+</body>
+</html>
